@@ -4,21 +4,24 @@ child(bob,harry).
 bird(pengiun).
 bird(ostich).
 bird(fl).
-% USE sentence(Parse_tree, [the,young,boy,pushed,and,stored,a,big,box,in,the,large,empty,room.after,school], []). to try running
+% USE s(Parse_tree, [the,words,in,a,sentence], []). to try running
 
 % Rules =================
 
-sentence(s(NP,VP)) --> noun_phrase(NP), verb_phrase(VP).
-sentence(s(NP,VP,C)) --> noun_phrase(NP), verb_phrase(VP), conjuction(C).
+s(s(NP,VP)) --> noun_phrase(NP), verb_phrase(VP).
+s(s(NP,VP,C,S)) --> noun_phrase(NP), verb_phrase(VP), conjuction(C),s(S) .
 
 noun_phrase(np(N)) --> noun_phrase_single(N).
 noun_phrase(np(NS,C,N)) --> noun_phrase_single(NS), conjuction(C), noun_phrase(N).
 
+noun_phrase_single(nps(N)) --> noun(N).
 noun_phrase_single(nps(P,N)) --> preposition(P), noun(N).
 noun_phrase_single(nps(D,N)) --> det(D), noun(N).
 noun_phrase_single(nps(A,N)) --> adjectives(A), noun(N).
-noun_phrase_single(nps(D,P,N)) --> det(D), preposition(P), noun(N).
+noun_phrase_single(nps(P,D,N)) -->  preposition(P), det(D), noun(N).
 noun_phrase_single(nps(D,A,N)) --> det(D), adjectives(A), noun(N).
+noun_phrase_single(nps(P,A,N)) --> preposition(P), adjectives(A), noun(N).
+noun_phrase_single(nps(P,D,A,N)) --> preposition(P), det(D), adjectives(A), noun(N).
 
 noun_phrases(ns(N)) --> noun_phrase(N).
 noun_phrases(ns(N,NS)) --> noun_phrase(N), noun_phrases(NS).
@@ -221,7 +224,6 @@ verb(v(worked)) --> [worked].
 verb(v(travelled)) --> [travelled].
 
 
-
 % lemma(+Lemma,+Category)
 % --------------------------------------------------------------------
 lemma(a,dtexists).
@@ -290,6 +292,160 @@ lemma(which, whthing).
 lemma(white,adj).
 lemma(who, whperson).
 lemma(yellow,adj).
+
+
+% ==================================================
+% Negation 
+% ==================================================
+
+sat(G,not(Formula2),G):-
+    \+ sat(G,Formula2,_).
+ 
+ % ==================================================
+ % Universal quantifier
+ % ==================================================
+ 
+ sat(G, forall(X,Formula2),G):-
+   sat(G,not( exists(X,not(Formula2) ) ),G).
+ 
+ 
+ % ==================================================
+ % Conjunction
+ % ==================================================
+ 
+ sat(G1,and(Formula1,Formula2),G3):-
+   sat(G1,Formula1,G2), 
+   sat(G2,Formula2,G3). 
+ 
+ 
+ % ==================================================
+ % Disjunction
+ % ==================================================
+ 
+ 
+ sat(G1,or(Formula1,Formula2),G2):-
+   ( sat(G1,Formula1,G2) ;
+     sat(G1,Formula2,G2) ).
+ % ==================================================
+% Two-place Relations
+% ==================================================
+
+sat(G,Rel,G):-
+    Rel =.. [R,Var1,Var2],
+    \+ ( member(R,[exists,forall,and,or,imp,the]) ),
+    i(Var1,G,Value1),
+    i(Var2,G,Value2),
+    f(R,[Value1,Value2]).
+
+
+% build_table(+ListOfClosedForms, +History, +ListOfConstants,
+%             -Tree, -Status)
+%
+build_table(Forms, _, _, closed(Forms), closed) :-
+	compl(Forms), !.
+build_table(Forms, Past, Constants, tree(Forms, alpha(A), Son), Status) :-
+	select(A, Forms, Rest),
+	alpha(A, A1), !,
+	ord_union([A1], Rest, NewForms),
+	ord_union([A1], Past, Present),
+	build_table(NewForms, Present, Constants, Son, Status).
+build_table(Forms, Past, Constants, tree(Forms, alpha(A), Son), Status) :-
+	select(A, Forms, Rest),
+	alpha(A, A1, A2), !,
+	ord_union([A1, A2], Rest, NewForms),
+	ord_union([A1, A2], Past, Present),
+	build_table(NewForms, Present, Constants, Son, Status).
+build_table(Forms, Past, Constants, tree(Forms, beta(A), Son1, Son2), Status) :-
+	select(A, Forms, Rest),
+	beta(A, A1, A2), !,
+	ord_union([A1], Rest, NewForms1),
+	ord_union([A2], Rest, NewForms2),
+	ord_union([A1], Past, Present1),
+	ord_union([A2], Past, Present2),
+	build_table(NewForms1, Present1, Constants, Son1, Status1),
+	build_table(NewForms2, Present2, Constants, Son2, Status2),
+	status(Status1, Status2, Status).
+build_table(Forms, Past, Constants, tree(Forms, delta(A), Son), Status) :-
+	select(A, Forms, Rest),
+	is_delta(A), !,
+	copy_term(A, B),
+	delta(B, X, B1),
+	new_constant(Constants, C),
+	X = C,
+	ord_union([B1], Rest, NewForms),
+	ord_union([B1], Past, Present),
+	build_table(NewForms, Present, [C | Constants], Son, Status).
+build_table(Forms, Past, Constants, Tree, Status) :-
+	gammas(Forms, Gammas, Rest), !,
+	copy_term(Gammas, NewGammas),
+	populate(NewGammas, Constants, NewForms1),
+	ord_subtract(NewForms1, Past, NewForms2),
+	%my_ord_subtract(NewForms1, Past, NewForms2),
+	(   NewForms2 = []
+	->  Tree = open(Forms, Constants),
+	    Status = open
+	;   Tree = tree(Forms, gamma(Gammas, Constants), Son),
+	    ord_union(NewForms2, Rest, NewForms3),
+	    ord_union(Gammas, NewForms3, NewForms),
+	    ord_union(NewForms2, Past, Present),
+	    build_table(NewForms, Present, Constants, Son, Status)).
+
+% build_table(+Limit, +History, +ListOfClosedForms, +ListOfConstants,
+%             -Tree, -Status)
+%
+build_table(_, Forms, _, _, closed(Forms), closed) :-
+	compl(Forms), !.
+build_table(Limit, Forms, Past, Constants, tree(Forms, alpha(A), Son), Status) :-
+	select(A, Forms, Rest),
+	alpha(A, A1), !,
+	ord_union([A1], Rest, NewForms),
+	ord_union([A1], Past, Present),
+	build_table(Limit, NewForms, Present, Constants, Son, Status).
+build_table(Limit, Forms, Past, Constants, tree(Forms, alpha(A), Son), Status) :-
+	select(A, Forms, Rest),
+	alpha(A, A1, A2), !,
+	ord_union([A1, A2], Rest, NewForms),
+	ord_union([A1, A2], Past, Present),
+	build_table(Limit, NewForms, Present, Constants, Son, Status).
+build_table(Limit, Forms, Past, Constants, tree(Forms, beta(A), Son1, Son2),
+	    Status) :-
+	select(A, Forms, Rest),
+	beta(A, A1, A2), !,
+	ord_union([A1], Rest, NewForms1),
+	ord_union([A2], Rest, NewForms2),
+	ord_union([A1], Past, Present1),
+	ord_union([A2], Past, Present2),
+	build_table(Limit, NewForms1, Present1, Constants, Son1, Status1),
+	build_table(Limit, NewForms2, Present2, Constants, Son2, Status2),
+	status(Status1, Status2, Status).
+build_table(Limit, Forms, Past, Constants, tree(Forms, delta(A), Son), Status) :-
+	select(A, Forms, Rest),
+	is_delta(A), !,
+	copy_term(A, B),
+	delta(B, X, B1),
+	new_constant(Constants, C),
+	X = C,
+	ord_union([B1], Rest, NewForms),
+	ord_union([B1], Past, Present),
+	build_table(Limit, NewForms, Present, [C | Constants], Son, Status).
+build_table(Limit, Forms, Past, Constants, Tree, Status) :-
+	gammas(Forms, Gammas, Rest), !,
+	copy_term(Gammas, NewGammas),
+	populate(NewGammas, Constants, NewForms1),
+	ord_subtract(NewForms1, Past, NewForms2),
+	(   NewForms2 = []
+	->  Tree = open(Forms, Constants),
+	    Status = open
+	;   (    Limit > 0
+	    ->	Limit1 is Limit - 1,
+		ord_union(NewForms2, Rest, NewForms3),
+		 ord_union(Gammas, NewForms3, NewForms),
+		 ord_union(NewForms2, Past, Present),
+		 Tree = tree(Forms, gamma(Gammas, Constants), Son),
+		 build_table(Limit1, NewForms, Present, Constants, Son, Status)
+	    ;   Tree = unknown(Forms),
+		Status = unknown)).
+
 
 
 alpha(not(not(A)), A).
